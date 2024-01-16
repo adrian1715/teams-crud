@@ -1,27 +1,18 @@
 const express = require("express");
 const app = express();
-
 const cors = require("cors");
-app.use(cors());
-
-// to parse json and URL-encoded data
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-
-const mongoose = require("mongoose");
-mongoose
-  .connect("mongodb://localhost:27017/teams")
-  .then(() => console.log("database connected!"))
-  .catch((err) => console.log("database connection failed", err));
-
+const connectDB = require("./db");
 const Football = require("./models/football");
 
-// to catch errors
-function catchAsync(fn) {
-  return function (req, res, next) {
-    fn(req, res, next).catch(next);
-  };
-}
+const catchAsync = require("./middleware/catchAsync");
+const verifyId = require("./middleware/verifyId");
+const verifyTeam = require("./middleware/verifyTeam");
+
+app.use(cors());
+app.use(express.json()); // to parse json
+app.use(express.urlencoded({ extended: true })); // to parse URL-encoded data
+
+connectDB(); // database connection
 
 // to get data from the database
 app.get(
@@ -32,48 +23,60 @@ app.get(
   })
 );
 
-// CREATE (add new)
-app.post("/api/items", async (req, res) => {
-  const newTeam = new Football(req.body);
-  // using try and catch just to specify user redirect in case of error
-  try {
-    // adding new team to the database
-    await newTeam.save();
-    res.redirect("http://localhost:3000");
-  } catch (err) {
-    // showing error message (configure UI message in React)
-    console.log("sending error", err);
-    res.redirect("http://localhost:3000/new");
-  }
-});
-
 // FIND (show)
 app.get(
   "/api/items/:id",
+  verifyId,
   catchAsync(async (req, res) => {
     const { id } = req.params;
     const team = await Football.findById(id);
-    res.json(team);
+
+    res.status(200).json(team);
+  })
+);
+
+// CREATE (add new)
+app.post(
+  "/api/items",
+  verifyTeam,
+  catchAsync(async (req, res) => {
+    const newTeam = new Football(req.body);
+    await newTeam.save();
+
+    res.status(200).json({ message: `${newTeam.name} added.`, newTeam });
   })
 );
 
 // UPDATE
-app.put("/api/items/:id", async (req, res) => {
-  const { id } = req.params;
-  await Football.findByIdAndUpdate(id, {
-    ...req.body,
-  });
-});
+app.put(
+  "/api/items/:id",
+  verifyId,
+  verifyTeam,
+  catchAsync(async (req, res) => {
+    const { id } = req.params;
+    await Football.findByIdAndUpdate(id, {
+      ...req.body,
+    });
+
+    res
+      .status(200)
+      .json({ message: "Team successfully edited.", editedTeam: req.body });
+  })
+);
 
 // DELETE
-app.delete("/api/items/:id", async (req, res) => {
-  const { id } = req.params;
-  try {
-    await Football.findByIdAndDelete(id);
-  } catch (err) {
-    console.log(err);
-  }
-});
+app.delete(
+  "/api/items/:id",
+  verifyId,
+  catchAsync(async (req, res) => {
+    const { id } = req.params;
+    const deletedTeam = await Football.findByIdAndDelete(id);
+
+    res
+      .status(200)
+      .json({ message: "Team successfully deleted.", deletedTeam });
+  })
+);
 
 // default error handling middleware (it'll be triggered when catchAsync catches an error and executes next())
 app.use((err, req, res, next) => {
